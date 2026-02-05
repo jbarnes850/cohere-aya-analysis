@@ -262,7 +262,7 @@ Harrasse et al. (2025) demonstrate that multilingual models develop a characteri
 | Phase | Layers | Entropy | Interpretation |
 |-------|--------|---------|----------------|
 | Encoding | 0-6 | 3.08 -> 5.22 (peak) | Language-specific input processing |
-| Plateau | 6-18 | 5.22 -> 5.46 (fluctuating) | Broad high-entropy transition zone |
+| Plateau | 6-18 | 5.22 -> 5.42 (fluctuating) | Broad high-entropy transition zone |
 | Shared space | 18-27 | 5.42 -> 4.75 (trough) | Convergence to multilingual semantics |
 | Decoding | 27-31 | 4.75 -> 5.73 | Language-specific output generation |
 
