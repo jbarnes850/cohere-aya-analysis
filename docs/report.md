@@ -263,8 +263,8 @@ Harrasse et al. (2025) demonstrate that multilingual models develop a characteri
 |-------|--------|---------|----------------|
 | Encoding | 0-6 | 3.08 -> 5.22 (peak) | Language-specific input processing |
 | Plateau | 6-18 | 5.22 -> 5.46 (fluctuating) | Broad high-entropy transition zone |
-| Shared space | 18-28 | 5.42 -> 4.64 (trough) | Convergence to multilingual semantics |
-| Decoding | 28-31 | 4.75 -> 5.73 | Language-specific output generation |
+| Shared space | 18-27 | 5.42 -> 4.75 (trough) | Convergence to multilingual semantics |
+| Decoding | 27-31 | 4.75 -> 5.73 | Language-specific output generation |
 
 With 70 prompts (doubled from the initial 35), the entropy curve shows a clearer picture than the original run. The early rise (layers 0-6) and late rise (layers 28-31) are consistent with the CLT paper's three-phase prediction. The middle section (layers 6-28) shows a broad fluctuating plateau that descends gradually rather than a sharp trough, reflecting the greater diversity of prompt types in the expanded set.
 
