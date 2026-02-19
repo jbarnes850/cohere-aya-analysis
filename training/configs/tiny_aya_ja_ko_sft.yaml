@@ -1,0 +1,184 @@
+run_prefix: tiny_aya_ja_ko_sft
+seed: 42
+
+paths:
+  output_root: outputs/posttrain
+
+model:
+  base_model: models/tiny-aya-global
+  attn_implementation: sdpa
+
+datasets:
+  aya_dataset:
+    path: CohereLabs/aya_dataset
+    split: train
+    max_examples: 150000
+    streaming: true
+    apply_instruction_lang_filter: true
+  aya_collection:
+    path: CohereLabs/aya_collection
+    names:
+      - templated_japanese_instruct
+      - templated_ntx_llm
+      - translated_wikiqa
+      - translated_flan_qa
+      - translated_joke_explaination
+    split: train
+    max_examples: 50000
+    max_examples_per_name:
+      templated_japanese_instruct: 30000
+      templated_ntx_llm: 6000
+      translated_wikiqa: 5000
+      translated_flan_qa: 5000
+      translated_joke_explaination: 3000
+    streaming: true
+    apply_instruction_lang_filter: true
+  flores_plus:
+    path: openlanguagedata/flores_plus
+    split: dev
+    max_examples: 20000
+    streaming: true
+  llm_japanese_dataset:
+    path: izumi-lab/llm-japanese-dataset
+    split: train
+    max_examples: 120000
+    streaming: true
+  llm_japanese_aya:
+    path: tellarin-ai/llm-japanese-dataset-vanilla-aya-format
+    split: train[:90000]
+    max_examples: 90000
+    streaming: false
+  open_korean_instructions:
+    path: heegyu/open-korean-instructions
+    split: train[:120000]
+    max_examples: 120000
+    streaming: false
+  koalpaca:
+    path: beomi/KoAlpaca-v1.1a
+    split: train[:21155]
+    max_examples: 30000
+    streaming: false
+  tatoeba_ja_ko:
+    path: sappho192/Tatoeba-Challenge-jpn-kor
+    split: train
+    max_examples: 50000
+    streaming: true
+    task: parallel_translation
+    translation:
+      source_text_field: sourceString
+      target_text_field: targetString
+      source_lang: ja
+      target_lang: ko
+      bidirectional: true
+      preserve_entities_hint: true
+
+data:
+  total_examples: 120000
+  target_mode: auto_scale_to_available
+  min_total_examples: 60000
+  train_ratio: 0.98
+  source_only: true
+  sampling_with_replacement: false
+  source_derivation_pool_multiplier: 3.0
+  target_instruction_langs: [ja, ko]
+  synthetic_augmentation:
+    enabled: false
+    min_pool_multiplier: 1.5
+    augment_translation: false
+    augment_entity_structured: false
+    instruction_buckets: [ko_instruction]
+  weights:
+    ja_instruction: 0.25
+    ko_instruction: 0.25
+    translation: 0.30
+    entity: 0.05
+    structured: 0.15
+  quality:
+    dedup: true
+    drop_lang_mismatch: true
+    max_chars_per_example: 16000
+    min_assistant_chars: 4
+    enforce_post_qc_bucket_floors: true
+    min_bucket_target_fraction: 0.80
+    min_bucket_target_fraction_by_bucket:
+      ko_instruction: 0.85
+      translation: 0.90
+      structured: 0.90
+    critical_buckets:
+      - ja_instruction
+      - ko_instruction
+      - translation
+      - entity
+      - structured
+
+lora:
+  r: 64
+  lora_alpha: 128
+  lora_dropout: 0.05
+  bias: none
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  layers_to_transform:
+    - 28
+    - 29
+    - 30
+    - 31
+    - 32
+    - 33
+    - 34
+    - 35
+  layers_pattern: layers
+  modules_to_save:
+    - lm_head
+
+training:
+  max_seq_length: 4096
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 16
+  max_steps: 1000
+  learning_rate: 1.0e-4
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.05
+  max_grad_norm: 1.0
+  weight_decay: 0.0
+  bf16: true
+  gradient_checkpointing: true
+  logging_steps: 10
+  eval_steps: 100
+  save_steps: 100
+  save_total_limit: 3
+  packing: false
+  report_to: []
+
+selection:
+  enabled: true
+  weights:
+    translation: 0.40
+    language_consistency: 0.30
+    entity: 0.20
+    structured: 0.10
+  samples:
+    translation: 24
+    language_consistency: 24
+    entity: 24
+    structured: 24
+  generation:
+    max_new_tokens: 128
+    temperature: 0.0
+    top_p: 1.0
+
+fallback:
+  enabled: true
+  qlora:
+    per_device_train_batch_size: 1
+    bnb_4bit_quant_type: nf4
+    bnb_4bit_use_double_quant: true
+    r: 32
+    lora_alpha: 64

@@ -90,6 +90,48 @@ cohere-aya-analysis/
 | `outputs/tables/*.csv` | Raw data for all analyses (generated) |
 | `outputs/figures/*.png` | Visualizations (generated) |
 
+### Frontier Post-Training Pipeline (Tiny Aya JA/KO)
+
+This repository also includes a full TRL-based post-training and evaluation pipeline for Tiny Aya JA/KO optimization:
+
+- `training/build_sft_dataset.py` - builds weighted JA/KO SFT mixture
+- `training/train_sft.py` - late-layer LoRA SFT (with QLoRA fallback)
+- `training/build_pref_dataset.py` - builds preference pairs for DPO
+- `training/train_dpo.py` - conditional DPO stage
+- `eval/run_eval_suite.py` - quick and expanded pre/post evaluation
+- `eval/run_comparators.py` - expanded comparator inference
+- `eval/compare_pre_post.py` - computes deltas, gap closure, and GO/NO-GO
+- `training/run_frontier_pipeline.py` - end-to-end orchestration
+
+Configs:
+
+- `training/configs/tiny_aya_ja_ko_sft.yaml`
+- `training/configs/tiny_aya_ja_ko_dpo.yaml`
+- `eval/configs/quick_8h.yaml`
+- `eval/configs/expanded_frontier.yaml`
+
+Current SFT data recipe highlights:
+
+- Uses disjoint FLORES+ splits to prevent leakage (`dev` for training translation pool, `devtest` for eval).
+- Adds high-supply open JA/KO instruction sources (`tellarin-ai/llm-japanese-dataset-vanilla-aya-format`, `heegyu/open-korean-instructions`, `beomi/KoAlpaca-v1.1a`).
+- Adds open JA↔KO translation source (`sappho192/Tatoeba-Challenge-jpn-kor`) on top of FLORES-derived translation rows.
+
+Run end-to-end:
+
+```bash
+python training/run_frontier_pipeline.py \
+  --output-root outputs/posttrain
+```
+
+Expected outputs:
+
+- `outputs/posttrain/<run_id>/metrics/quick_pre/`
+- `outputs/posttrain/<run_id>/metrics/quick_post/`
+- `outputs/posttrain/<run_id>/metrics/expanded_pre/`
+- `outputs/posttrain/<run_id>/metrics/expanded_post/`
+- `outputs/posttrain/<run_id>/metrics/expanded_comparators/`
+- `outputs/posttrain/<run_id>/metrics/expanded_summary/`
+
 ---
 
 ## Model & Terms

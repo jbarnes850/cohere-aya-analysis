@@ -1,0 +1,108 @@
+run_prefix: tiny_aya_ja_ko_sft_smoke
+seed: 42
+
+paths:
+  output_root: outputs/posttrain
+
+model:
+  base_model: sshleifer/tiny-gpt2
+  attn_implementation: eager
+
+datasets:
+  aya_dataset:
+    path: CohereLabs/aya_dataset
+    split: train
+    max_examples: 120
+    streaming: true
+  aya_collection:
+    path: CohereLabs/aya_collection
+    name: aya_dataset
+    split: train
+    max_examples: 120
+    streaming: true
+  flores_plus:
+    path: openlanguagedata/flores_plus
+    split: dev
+    max_examples: 120
+    streaming: true
+  llm_japanese_dataset:
+    path: izumi-lab/llm-japanese-dataset
+    split: train
+    max_examples: 120
+    streaming: true
+
+data:
+  total_examples: 160
+  train_ratio: 0.9
+  weights:
+    ja_instruction: 0.35
+    ko_instruction: 0.25
+    translation: 0.20
+    entity: 0.10
+    structured: 0.10
+  quality:
+    dedup: true
+    drop_lang_mismatch: true
+    max_chars_per_example: 4000
+    min_assistant_chars: 2
+
+lora:
+  r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  bias: none
+  target_modules:
+    - c_attn
+    - c_proj
+    - c_fc
+  layers_to_transform:
+    - 0
+    - 1
+  layers_pattern: h
+  modules_to_save: []
+
+training:
+  max_seq_length: 256
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 1
+  max_steps: 20
+  learning_rate: 1.0e-4
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.05
+  max_grad_norm: 1.0
+  weight_decay: 0.0
+  bf16: false
+  gradient_checkpointing: false
+  logging_steps: 5
+  eval_steps: 10
+  save_steps: 10
+  save_total_limit: 2
+  packing: false
+  report_to: []
+
+selection:
+  enabled: true
+  weights:
+    translation: 0.40
+    language_consistency: 0.30
+    entity: 0.20
+    structured: 0.10
+  samples:
+    translation: 4
+    language_consistency: 4
+    entity: 4
+    structured: 4
+  generation:
+    max_new_tokens: 32
+    temperature: 0.0
+    top_p: 1.0
+
+fallback:
+  enabled: false
+  qlora:
+    per_device_train_batch_size: 1
+    bnb_4bit_quant_type: nf4
+    bnb_4bit_use_double_quant: true
+    r: 4
+    lora_alpha: 8
