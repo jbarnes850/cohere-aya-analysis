@@ -5,9 +5,11 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import random
 import re
 import sys
+import time
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
@@ -26,6 +28,10 @@ from src.frontier_utils import (
     timestamp_run_id,
     write_jsonl,
 )
+
+
+os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "600")
+os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "120")
 
 
 FLORES_LANG_KEYS = {
@@ -131,24 +137,60 @@ def _load_dataset_rows(
     dataset_name: Optional[str] = None,
     row_filter: Optional[Callable[[Dict[str, Any]], bool]] = None,
 ) -> Iterable[Dict[str, Any]]:
-    from datasets import load_dataset
+    from datasets import DownloadConfig, load_dataset
 
     if max_examples <= 0:
         raise ValueError(f"max_examples must be > 0 for bounded dataset build; got {max_examples} for {dataset_path}:{split}")
 
-    if dataset_name:
-        ds = load_dataset(dataset_path, name=dataset_name, split=split, streaming=streaming)
-    else:
-        ds = load_dataset(dataset_path, split=split, streaming=streaming)
-    count = 0
-    for row in ds:
-        row_dict = dict(row)
-        if row_filter and not row_filter(row_dict):
-            continue
-        yield row_dict
-        count += 1
-        if max_examples and count >= max_examples:
+    restart_retries = int(os.environ.get("AYA_DATASET_STREAM_RESTART_RETRIES", "4"))
+    download_retries = int(os.environ.get("AYA_DATASET_DOWNLOAD_MAX_RETRIES", "8"))
+    accepted_count = 0
+    attempt = 0
+
+    while accepted_count < max_examples:
+        try:
+            dl_cfg = DownloadConfig(max_retries=download_retries, resume_download=True)
+            if dataset_name:
+                ds = load_dataset(
+                    dataset_path,
+                    name=dataset_name,
+                    split=split,
+                    streaming=streaming,
+                    download_config=dl_cfg,
+                )
+            else:
+                ds = load_dataset(
+                    dataset_path,
+                    split=split,
+                    streaming=streaming,
+                    download_config=dl_cfg,
+                )
+
+            seen_accepted = 0
+            for row in ds:
+                row_dict = dict(row)
+                if row_filter and not row_filter(row_dict):
+                    continue
+                if seen_accepted < accepted_count:
+                    seen_accepted += 1
+                    continue
+                yield row_dict
+                accepted_count += 1
+                seen_accepted += 1
+                if accepted_count >= max_examples:
+                    break
             break
+        except Exception as exc:
+            attempt += 1
+            if attempt > restart_retries:
+                raise
+            backoff = min(30, 2**attempt)
+            print(
+                f"WARN: transient load failure for {dataset_path}:{split} "
+                f"(attempt {attempt}/{restart_retries}, accepted={accepted_count}). "
+                f"Retrying in {backoff}s. Error: {exc}"
+            )
+            time.sleep(backoff)
 
 
 def _load_flores_rows(
@@ -158,58 +200,93 @@ def _load_flores_rows(
     streaming: bool = True,
     dataset_name: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    from datasets import load_dataset
+    from datasets import DownloadConfig, load_dataset
 
     if max_examples <= 0:
         raise ValueError(f"max_examples must be > 0 for bounded dataset build; got {max_examples} for {dataset_path}:{split}")
 
-    if dataset_name:
-        ds = load_dataset(dataset_path, name=dataset_name, split=split, streaming=streaming)
-    else:
-        ds = load_dataset(dataset_path, split=split, streaming=streaming)
+    restart_retries = int(os.environ.get("AYA_DATASET_STREAM_RESTART_RETRIES", "4"))
+    download_retries = int(os.environ.get("AYA_DATASET_DOWNLOAD_MAX_RETRIES", "8"))
+    attempt = 0
+    best_rows: List[Dict[str, Any]] = []
 
-    rows: List[Dict[str, Any]] = []
-    long_format_mode: Optional[bool] = None
-    target_triplets = max(1, max_examples // 3)
-    by_id: Dict[str, Dict[str, str]] = {}
-
-    for row in ds:
-        row_dict = dict(row)
-        if long_format_mode is None:
-            long_format_mode = {"id", "iso_639_3", "text"}.issubset(set(row_dict.keys()))
-
-        if long_format_mode:
-            rid = row_dict.get("id")
-            iso = normalize_lang(row_dict.get("iso_639_3"))
-            text = row_dict.get("text")
-            if rid is None or iso not in {"en", "ja", "ko"} or not text:
-                continue
-
-            key = str(rid)
-            bucket = by_id.setdefault(key, {})
-            bucket[iso] = str(text)
-            if {"en", "ja", "ko"}.issubset(set(bucket.keys())):
-                rows.append(
-                    {
-                        "id": key,
-                        "en": bucket["en"],
-                        "ja": bucket["ja"],
-                        "ko": bucket["ko"],
-                    }
+    while True:
+        rows: List[Dict[str, Any]] = []
+        long_format_mode: Optional[bool] = None
+        target_triplets = max(1, max_examples // 3)
+        by_id: Dict[str, Dict[str, str]] = {}
+        try:
+            dl_cfg = DownloadConfig(max_retries=download_retries, resume_download=True)
+            if dataset_name:
+                ds = load_dataset(
+                    dataset_path,
+                    name=dataset_name,
+                    split=split,
+                    streaming=streaming,
+                    download_config=dl_cfg,
                 )
-                del by_id[key]
-                if len(rows) >= target_triplets:
-                    break
-            continue
+            else:
+                ds = load_dataset(
+                    dataset_path,
+                    split=split,
+                    streaming=streaming,
+                    download_config=dl_cfg,
+                )
 
-        # Wide-format fallback.
-        text_by_lang = {lang: _extract_first_present(row_dict, keys) for lang, keys in FLORES_LANG_KEYS.items()}
-        if all(text_by_lang.values()):
-            rows.append(row_dict)
-            if len(rows) >= max_examples:
-                break
+            for row in ds:
+                row_dict = dict(row)
+                if long_format_mode is None:
+                    long_format_mode = {"id", "iso_639_3", "text"}.issubset(set(row_dict.keys()))
 
-    return rows
+                if long_format_mode:
+                    rid = row_dict.get("id")
+                    iso = normalize_lang(row_dict.get("iso_639_3"))
+                    text = row_dict.get("text")
+                    if rid is None or iso not in {"en", "ja", "ko"} or not text:
+                        continue
+
+                    key = str(rid)
+                    bucket = by_id.setdefault(key, {})
+                    bucket[iso] = str(text)
+                    if {"en", "ja", "ko"}.issubset(set(bucket.keys())):
+                        rows.append(
+                            {
+                                "id": key,
+                                "en": bucket["en"],
+                                "ja": bucket["ja"],
+                                "ko": bucket["ko"],
+                            }
+                        )
+                        del by_id[key]
+                        if len(rows) >= target_triplets:
+                            break
+                    continue
+
+                # Wide-format fallback.
+                text_by_lang = {lang: _extract_first_present(row_dict, keys) for lang, keys in FLORES_LANG_KEYS.items()}
+                if all(text_by_lang.values()):
+                    rows.append(row_dict)
+                    if len(rows) >= max_examples:
+                        break
+            return rows
+        except Exception as exc:
+            if len(rows) > len(best_rows):
+                best_rows = rows
+            attempt += 1
+            if attempt > restart_retries:
+                if best_rows:
+                    print(
+                        f"WARN: failed to fully load {dataset_path}:{split}; using partial rows={len(best_rows)} "
+                        f"after retries. Last error: {exc}"
+                    )
+                    return best_rows
+                raise
+            backoff = min(30, 2**attempt)
+            print(
+                f"WARN: transient FLORES load failure for {dataset_path}:{split} "
+                f"(attempt {attempt}/{restart_retries}). Retrying in {backoff}s. Error: {exc}"
+            )
+            time.sleep(backoff)
 
 
 def _extract_first_present(row: Dict[str, Any], candidates: List[str]) -> Optional[str]:
