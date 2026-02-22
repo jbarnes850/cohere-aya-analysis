@@ -19,10 +19,11 @@ if __package__ is None or __package__ == "":
 
 import torch
 from datasets import load_dataset
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, PeftModel, get_peft_model
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, TrainerCallback
 
 from src.frontier_utils import (
+    assert_no_benchmark_test_split,
     dump_yaml,
     ensure_dir,
     language_confused,
@@ -351,7 +352,9 @@ def _build_mcq_eval_subset(cfg: Dict[str, Any], seed: int, target_samples: int) 
         return []
 
     dataset_id = str(mcq_cfg.get("dataset_id", "CohereLabs/Global-MMLU-Lite"))
-    split = str(mcq_cfg.get("split", "test"))
+    split = str(mcq_cfg.get("split", "dev"))
+    assert_no_benchmark_test_split(dataset_id=dataset_id, split=split, purpose="SFT composite MCQ selection")
+    print(f"[selection] MCQ source verified for training-time use: dataset_id={dataset_id}, split={split}")
     langs_raw = mcq_cfg.get("langs", ["ja", "ko"])
     langs = [normalize_lang(str(lang)) for lang in langs_raw]
     langs = [lang for lang in langs if lang]
@@ -675,6 +678,7 @@ def _train_once(
     qlora_mode: bool = False,
     batch_override: int | None = None,
     resume_from_checkpoint: str | None = None,
+    init_adapter_dir: Path | None = None,
 ):
     from trl import SFTTrainer
 
@@ -682,8 +686,11 @@ def _train_once(
     train_ds, dev_ds = _prepare_datasets(tokenizer, data_dir)
 
     model = _load_model(cfg, qlora_mode=qlora_mode)
-    lora_cfg = _build_lora_config(cfg, qlora_mode=qlora_mode)
-    model = get_peft_model(model, lora_cfg)
+    if init_adapter_dir and init_adapter_dir.exists():
+        model = PeftModel.from_pretrained(model, str(init_adapter_dir), is_trainable=True)
+    else:
+        lora_cfg = _build_lora_config(cfg, qlora_mode=qlora_mode)
+        model = get_peft_model(model, lora_cfg)
     model.print_trainable_parameters()
 
     per_device_train_batch_size = int(batch_override or cfg["training"]["per_device_train_batch_size"])
@@ -791,6 +798,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-root", default=None)
     parser.add_argument("--force-qlora", action="store_true")
     parser.add_argument("--resume-from-checkpoint", default=None, help="Checkpoint directory to resume from")
+    parser.add_argument("--init-adapter-dir", default=None, help="Optional adapter directory to continue training from")
     return parser.parse_args()
 
 
@@ -805,6 +813,9 @@ def main() -> None:
     run_dir = ensure_dir(output_root / run_id / "artifacts" / "sft")
     data_dir = Path(args.data_dir)
     resume_from_checkpoint = str(Path(args.resume_from_checkpoint).expanduser().resolve()) if args.resume_from_checkpoint else None
+    init_adapter_dir = Path(args.init_adapter_dir).expanduser().resolve() if args.init_adapter_dir else None
+    if args.init_adapter_dir and (not init_adapter_dir or not init_adapter_dir.exists()):
+        raise FileNotFoundError(f"--init-adapter-dir does not exist: {args.init_adapter_dir}")
 
     dump_yaml(cfg, run_dir / "resolved_config.yaml")
 
@@ -813,6 +824,7 @@ def main() -> None:
         "run_id": run_id,
         "data_dir": str(data_dir),
         "resume_from_checkpoint": resume_from_checkpoint,
+        "init_adapter_dir": str(init_adapter_dir) if init_adapter_dir else None,
         "qlora_fallback_triggered": False,
         "selection_method": "eval_loss",
     }
@@ -825,6 +837,7 @@ def main() -> None:
                 data_dir,
                 qlora_mode=True,
                 resume_from_checkpoint=resume_from_checkpoint,
+                init_adapter_dir=init_adapter_dir,
             )
             state["qlora_fallback_triggered"] = True
         else:
@@ -834,6 +847,7 @@ def main() -> None:
                 data_dir,
                 qlora_mode=False,
                 resume_from_checkpoint=resume_from_checkpoint,
+                init_adapter_dir=init_adapter_dir,
             )
     except RuntimeError as exc:
         err_str = str(exc).lower()
@@ -851,7 +865,14 @@ def main() -> None:
 
         torch.cuda.empty_cache()
         batch_fallback = int(fallback_cfg.get("per_device_train_batch_size", 1))
-        state["selection"] = _train_once(cfg, run_dir, data_dir, qlora_mode=True, batch_override=batch_fallback)
+        state["selection"] = _train_once(
+            cfg,
+            run_dir,
+            data_dir,
+            qlora_mode=True,
+            batch_override=batch_fallback,
+            init_adapter_dir=init_adapter_dir,
+        )
 
     if isinstance(state.get("selection"), dict):
         state["selection_method"] = state["selection"].get("method", state["selection_method"])

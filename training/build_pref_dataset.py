@@ -13,7 +13,15 @@ if __package__ is None or __package__ == "":
 
 from datasets import load_dataset
 
-from src.frontier_utils import ensure_dir, load_yaml, normalize_lang, read_jsonl, timestamp_run_id, write_jsonl
+from src.frontier_utils import (
+    assert_no_benchmark_test_split,
+    ensure_dir,
+    load_yaml,
+    normalize_lang,
+    read_jsonl,
+    timestamp_run_id,
+    write_jsonl,
+)
 
 
 def _truncate_text(text: str) -> str:
@@ -251,7 +259,9 @@ def build_mcq_pref_rows(data_cfg: Dict[str, Any], seed: int, for_dev: bool = Fal
         return []
 
     dataset_id = str(mcq_cfg.get("dataset_id", "CohereLabs/Global-MMLU-Lite"))
-    split = str(mcq_cfg.get("split", "test"))
+    split = str(mcq_cfg.get("split", "dev"))
+    assert_no_benchmark_test_split(dataset_id=dataset_id, split=split, purpose="DPO MCQ preference construction")
+    print(f"[pref] MCQ source verified for training-time use: dataset_id={dataset_id}, split={split}")
     langs_raw = mcq_cfg.get("langs", ["ja", "ko"])
     langs = [normalize_lang(str(lang)) for lang in langs_raw]
     langs = [lang for lang in langs if lang]

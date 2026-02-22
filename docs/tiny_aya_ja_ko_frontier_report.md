@@ -30,6 +30,12 @@ Improve Japanese and Korean quality and efficiency on Tiny Aya Global by targeti
 - LoRA target layers: 28-35
 - Modules: `q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj`
 - `modules_to_save`: `lm_head`
+- CPT:
+  - `max_seq_length=4096`
+  - `per_device_train_batch_size=2`
+  - `gradient_accumulation_steps=32`
+  - `max_steps=4000`
+  - `lr=1e-5`, cosine, warmup 2%
 - SFT:
   - `max_seq_length=4096`
   - `per_device_train_batch_size=2`
@@ -88,6 +94,7 @@ Improve Japanese and Korean quality and efficiency on Tiny Aya Global by targeti
 ## Reproducibility Appendix
 - Git commit: `<fill>`
 - Configs:
+  - `training/configs/tiny_aya_ja_ko_cpt.yaml`
   - `training/configs/tiny_aya_ja_ko_sft.yaml`
   - `training/configs/tiny_aya_ja_ko_dpo.yaml`
   - `eval/configs/quick_8h.yaml`

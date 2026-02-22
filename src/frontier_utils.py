@@ -29,6 +29,18 @@ LANG_ALIAS = {
     "chi": "zh",
 }
 
+BENCHMARK_TRAINING_LEAKAGE_DATASETS = {
+    "coherelabs/global-mmlu-lite",
+    "coherelabs/global-mmlu",
+    "coherelabs/aya_evaluation_suite",
+    "openlanguagedata/flores_plus",
+}
+
+BENCHMARK_HELDOUT_SPLITS = {
+    "test",
+    "devtest",
+}
+
 
 def load_yaml(path: str | Path) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:
@@ -97,6 +109,25 @@ def normalize_lang(raw: Optional[str]) -> Optional[str]:
     if "-" in text:
         text = text.split("-", 1)[0]
     return LANG_ALIAS.get(text, text)
+
+
+def assert_no_benchmark_test_split(
+    dataset_id: str,
+    split: str,
+    purpose: str,
+    benchmark_datasets: Optional[Sequence[str]] = None,
+    blocked_splits: Optional[Sequence[str]] = None,
+) -> None:
+    dataset_key = str(dataset_id).strip().lower()
+    split_key = str(split).strip().lower()
+    benchmark_set = {str(x).strip().lower() for x in (benchmark_datasets or BENCHMARK_TRAINING_LEAKAGE_DATASETS)}
+    blocked_set = {str(x).strip().lower() for x in (blocked_splits or BENCHMARK_HELDOUT_SPLITS)}
+    if dataset_key in benchmark_set and split_key in blocked_set:
+        raise ValueError(
+            f"Benchmark leakage guard triggered for {purpose}: "
+            f"dataset_id={dataset_id}, split={split}. "
+            "Use a non-heldout split (for example: dev) during training-time data selection."
+        )
 
 
 def _extract_messages_list(value: Any) -> Optional[List[Dict[str, str]]]:

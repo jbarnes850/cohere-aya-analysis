@@ -178,7 +178,7 @@ selection:
   mcq:
     enabled: true
     dataset_id: CohereLabs/Global-MMLU-Lite
-    split: test
+    split: dev
     langs: [ja, ko]
     lang_field_candidates: [language, lang]
     id_fields: [id, sample_id, example_id, uuid]

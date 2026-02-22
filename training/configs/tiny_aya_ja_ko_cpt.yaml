@@ -1,0 +1,89 @@
+run_prefix: tiny_aya_ja_ko_cpt
+seed: 42
+
+paths:
+  output_root: outputs/posttrain
+
+model:
+  base_model: models/tiny-aya-global
+  attn_implementation: sdpa
+
+data:
+  total_texts: 120000
+  min_total_texts: 60000
+  train_ratio: 0.98
+  min_chars: 16
+  max_chars: 16000
+  dedup: true
+  bucket_weights:
+    ja_knowledge: 0.25
+    ko_knowledge: 0.25
+    ja_ko_instruction_mcq: 0.15
+    en_replay: 0.25
+    helper_transfer: 0.10
+  mcq_dev:
+    enabled: true
+    dataset_id: CohereLabs/Global-MMLU-Lite
+    split: dev
+    langs: [ja, ko]
+    lang_field_candidates: [language, lang]
+    id_fields: [id, sample_id, example_id, uuid]
+    max_rows_per_lang: 1024
+    rows_per_lang: 384
+    fewshot_k: 2
+    max_choices: 4
+
+lora:
+  r: 64
+  lora_alpha: 128
+  lora_dropout: 0.05
+  bias: none
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  layers_to_transform:
+    - 28
+    - 29
+    - 30
+    - 31
+    - 32
+    - 33
+    - 34
+    - 35
+  layers_pattern: layers
+  modules_to_save:
+    - lm_head
+
+training:
+  max_seq_length: 4096
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 32
+  max_steps: 4000
+  learning_rate: 1.0e-5
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.02
+  max_grad_norm: 1.0
+  weight_decay: 0.0
+  bf16: true
+  gradient_checkpointing: true
+  logging_steps: 10
+  eval_steps: 400
+  save_steps: 200
+  save_total_limit: 4
+  packing: true
+  report_to: []
+
+fallback:
+  enabled: true
+  qlora:
+    per_device_train_batch_size: 1
+    bnb_4bit_quant_type: nf4
+    bnb_4bit_use_double_quant: true
+    r: 32
+    lora_alpha: 64

@@ -16,7 +16,6 @@ if __package__ is None or __package__ == "":
 import pandas as pd
 import torch
 from datasets import load_dataset
-from peft import PeftModel
 from sacrebleu.metrics import CHRF
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -91,6 +90,8 @@ def _load_model_tokenizer(model_id: str, adapter_dir: Optional[str], attn_impl: 
         kwargs.pop("attn_implementation", None)
         model = AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
     if adapter_dir:
+        from peft import PeftModel
+
         model = PeftModel.from_pretrained(model, adapter_dir)
     model.eval()
     return model, tokenizer
@@ -706,6 +707,64 @@ def _flatten_metrics(metric_rows: List[MetricRow]) -> List[Dict[str, Any]]:
     return [m.to_dict() for m in metric_rows]
 
 
+def _build_eval_parity_manifest(cfg: Dict[str, Any], mode: str, tokenizer: Any, attn_implementation: str) -> Dict[str, Any]:
+    gm = cfg.get("global_mmlu", {}).get(mode, {})
+    flores = cfg.get("flores", {}).get(mode, {})
+    aya_eval = cfg.get("aya_eval", {}).get(mode, {})
+    custom = cfg.get("custom", {}).get(mode, {})
+
+    def _gen_mode(temp: float) -> str:
+        return "greedy" if float(temp) == 0.0 else "sampling"
+
+    return {
+        "mode": mode,
+        "prompt_format": {
+            "global_mmlu": "choice_prompt_v1",
+            "flores": "translation_prompt_v1",
+            "aya_eval": "single_turn_user_prompt",
+            "custom_entity_structured": "single_turn_user_prompt",
+        },
+        "sampling": {
+            "global_mmlu": {
+                "generation_mode": _gen_mode(float(gm.get("temperature", 0.0))),
+                "temperature": float(gm.get("temperature", 0.0)),
+                "top_p": float(gm.get("top_p", 1.0)),
+                "max_new_tokens": int(gm.get("max_new_tokens", 8)),
+                "n_shot": int(gm.get("n_shot", 5)),
+            },
+            "flores": {
+                "generation_mode": _gen_mode(float(flores.get("temperature", 0.0))),
+                "temperature": float(flores.get("temperature", 0.0)),
+                "top_p": float(flores.get("top_p", 1.0)),
+                "max_new_tokens": int(flores.get("max_new_tokens", 256)),
+            },
+            "aya_eval": {
+                "generation_mode": _gen_mode(float(aya_eval.get("temperature", 0.0))),
+                "temperature": float(aya_eval.get("temperature", 0.0)),
+                "top_p": float(aya_eval.get("top_p", 1.0)),
+                "max_new_tokens": int(aya_eval.get("max_new_tokens", 256)),
+            },
+            "custom": {
+                "generation_mode": _gen_mode(float(custom.get("temperature", 0.0))),
+                "temperature": float(custom.get("temperature", 0.0)),
+                "top_p": float(custom.get("top_p", 1.0)),
+                "entity_max_new_tokens": int(custom.get("entity_max_new_tokens", 96)),
+                "structured_max_new_tokens": int(custom.get("structured_max_new_tokens", 128)),
+            },
+        },
+        "special_tokens": {
+            "chat_template_present": bool(getattr(tokenizer, "chat_template", None)),
+            "pad_token": tokenizer.pad_token,
+            "pad_token_id": int(tokenizer.pad_token_id) if tokenizer.pad_token_id is not None else None,
+            "eos_token": tokenizer.eos_token,
+            "eos_token_id": int(tokenizer.eos_token_id) if tokenizer.eos_token_id is not None else None,
+        },
+        "model_runtime": {
+            "attn_implementation_arg": attn_implementation,
+        },
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run pre/post multilingual eval suite")
     parser.add_argument("--config", default="eval/configs/quick_8h.yaml")
@@ -755,6 +814,12 @@ def run_eval(
         "adapter_dir": adapter_dir,
         "n_metrics": len(metrics_df),
         "n_items": len(items_df),
+        "eval_parity_manifest": _build_eval_parity_manifest(
+            cfg=cfg,
+            mode=mode,
+            tokenizer=tokenizer,
+            attn_implementation=attn_implementation,
+        ),
     }
     with open(out_dir / "summary.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)

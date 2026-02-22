@@ -56,7 +56,13 @@ def test_sft_config_has_quality_gates_and_composite_selection():
     selection = cfg["selection"]
     assert selection["enabled"] is True
     weights = selection["weights"]
-    total = weights["translation"] + weights["language_consistency"] + weights["entity"] + weights["structured"]
+    total = (
+        weights["translation"]
+        + weights["language_consistency"]
+        + weights["entity"]
+        + weights["structured"]
+        + weights.get("mcq_format", 0.0)
+    )
     assert abs(total - 1.0) < 1e-8
 
     data_weights = cfg["data"]["weights"]
@@ -70,3 +76,13 @@ def test_expanded_global_mmlu_uses_matched_en_control():
     assert "id_fields" in gm
     assert isinstance(gm["id_fields"], list)
     assert len(gm["id_fields"]) >= 1
+
+
+def test_benchmark_selection_splits_are_not_test_for_training_time():
+    sft_cfg = yaml.safe_load(Path("training/configs/tiny_aya_ja_ko_sft.yaml").read_text())
+    dpo_cfg = yaml.safe_load(Path("training/configs/tiny_aya_ja_ko_dpo.yaml").read_text())
+    cpt_cfg = yaml.safe_load(Path("training/configs/tiny_aya_ja_ko_cpt.yaml").read_text())
+
+    assert sft_cfg["selection"]["mcq"]["split"] == "dev"
+    assert dpo_cfg["data"]["mcq_preference"]["split"] == "dev"
+    assert cpt_cfg["data"]["mcq_dev"]["split"] == "dev"

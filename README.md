@@ -94,6 +94,8 @@ cohere-aya-analysis/
 
 This repository also includes a full TRL-based post-training and evaluation pipeline for Tiny Aya JA/KO optimization:
 
+- `training/build_cpt_dataset.py` - builds leak-safe CPT text corpus from SFT pools + MCQ dev augmentation
+- `training/train_cpt.py` - late-layer LoRA continued pretraining (CPT)
 - `training/build_sft_dataset.py` - builds weighted JA/KO SFT mixture
 - `training/train_sft.py` - late-layer LoRA SFT (with QLoRA fallback)
 - `training/build_pref_dataset.py` - builds preference pairs for DPO
@@ -105,6 +107,7 @@ This repository also includes a full TRL-based post-training and evaluation pipe
 
 Configs:
 
+- `training/configs/tiny_aya_ja_ko_cpt.yaml`
 - `training/configs/tiny_aya_ja_ko_sft.yaml`
 - `training/configs/tiny_aya_ja_ko_dpo.yaml`
 - `eval/configs/quick_8h.yaml`

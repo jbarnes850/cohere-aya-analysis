@@ -12,7 +12,7 @@ from typing import Any, Dict, List
 if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.frontier_utils import ensure_dir, load_yaml, now_utc_iso, timestamp_run_id
+from src.frontier_utils import assert_no_benchmark_test_split, ensure_dir, load_yaml, now_utc_iso, timestamp_run_id
 
 
 def _run(cmd: List[str]) -> None:
@@ -64,8 +64,39 @@ def _validate_no_flores_split_overlap(
         )
 
 
+def _validate_training_split_safety(
+    sft_cfg: Dict[str, Any],
+    pref_cfg: Dict[str, Any],
+    cpt_cfg: Dict[str, Any],
+) -> None:
+    sft_mcq = sft_cfg.get("selection", {}).get("mcq", {})
+    if isinstance(sft_mcq, dict) and bool(sft_mcq.get("enabled", True)):
+        assert_no_benchmark_test_split(
+            dataset_id=str(sft_mcq.get("dataset_id", "CohereLabs/Global-MMLU-Lite")),
+            split=str(sft_mcq.get("split", "dev")),
+            purpose="pipeline preflight: SFT composite MCQ selection",
+        )
+
+    dpo_mcq = pref_cfg.get("data", {}).get("mcq_preference", {})
+    if isinstance(dpo_mcq, dict) and bool(dpo_mcq.get("enabled", True)):
+        assert_no_benchmark_test_split(
+            dataset_id=str(dpo_mcq.get("dataset_id", "CohereLabs/Global-MMLU-Lite")),
+            split=str(dpo_mcq.get("split", "dev")),
+            purpose="pipeline preflight: DPO MCQ preference construction",
+        )
+
+    cpt_mcq = cpt_cfg.get("data", {}).get("mcq_dev", {})
+    if isinstance(cpt_mcq, dict) and bool(cpt_mcq.get("enabled", True)):
+        assert_no_benchmark_test_split(
+            dataset_id=str(cpt_mcq.get("dataset_id", "CohereLabs/Global-MMLU-Lite")),
+            split=str(cpt_mcq.get("split", "dev")),
+            purpose="pipeline preflight: CPT MCQ dev augmentation",
+        )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Execute Tiny Aya JA/KO frontier training+eval plan")
+    parser.add_argument("--cpt-config", default="training/configs/tiny_aya_ja_ko_cpt.yaml")
     parser.add_argument("--sft-config", default="training/configs/tiny_aya_ja_ko_sft.yaml")
     parser.add_argument("--pref-config", default="training/configs/tiny_aya_ja_ko_dpo.yaml")
     parser.add_argument("--quick-eval-config", default="eval/configs/quick_8h.yaml")
@@ -81,10 +112,13 @@ def main() -> None:
     args = parse_args()
     start = time.time()
     python_exec = sys.executable
+    cpt_cfg = load_yaml(args.cpt_config)
     sft_cfg = load_yaml(args.sft_config)
+    pref_cfg = load_yaml(args.pref_config)
     quick_eval_cfg = load_yaml(args.quick_eval_config)
     expanded_eval_cfg = load_yaml(args.expanded_eval_config)
     _validate_no_flores_split_overlap(sft_cfg, quick_eval_cfg, expanded_eval_cfg)
+    _validate_training_split_safety(sft_cfg, pref_cfg, cpt_cfg)
     base_model_id = str(sft_cfg["model"]["base_model"])
 
     run_id = args.run_id or timestamp_run_id("tiny_aya_ja_ko_frontier")
@@ -95,9 +129,10 @@ def main() -> None:
     state: Dict[str, Any] = {
         "run_id": run_id,
         "started_at_utc": now_utc_iso(),
+        "phase_order": ["build_sft_data", "build_cpt_data", "quick_pre", "cpt", "sft", "dpo_optional", "quick_post"],
     }
 
-    # Phase A: build SFT dataset
+    # Phase A: build SFT dataset (reused as a source pool for CPT data build).
     _run(
         [
             python_exec,
@@ -113,7 +148,27 @@ def main() -> None:
     )
     data_dir = run_root / "artifacts" / "data"
 
-    # Phase B: baseline quick eval
+    # Phase B: build CPT text dataset from SFT pool + MCQ dev augmentation.
+    _run(
+        [
+            python_exec,
+            "-m",
+            "training.build_cpt_dataset",
+            "--config",
+            args.cpt_config,
+            "--sft-train-jsonl",
+            str(data_dir / "train.jsonl"),
+            "--sft-dev-jsonl",
+            str(data_dir / "dev.jsonl"),
+            "--output-dir",
+            str(Path(args.output_root)),
+            "--run-id",
+            run_id,
+        ]
+    )
+    cpt_data_dir = run_root / "artifacts" / "cpt_data"
+
+    # Phase C: baseline quick eval
     _run(
         [
             python_exec,
@@ -132,7 +187,27 @@ def main() -> None:
         ]
     )
 
-    # Phase C: SFT
+    # Phase D: CPT
+    _run(
+        [
+            python_exec,
+            "-m",
+            "training.train_cpt",
+            "--config",
+            args.cpt_config,
+            "--data-dir",
+            str(cpt_data_dir),
+            "--run-id",
+            run_id,
+            "--output-root",
+            str(Path(args.output_root)),
+        ]
+    )
+    cpt_adapter = run_root / "artifacts" / "cpt" / "adapter"
+    if not cpt_adapter.exists():
+        raise RuntimeError(f"CPT adapter not found after CPT phase: {cpt_adapter}")
+
+    # Phase E: SFT
     _run(
         [
             python_exec,
@@ -146,11 +221,13 @@ def main() -> None:
             run_id,
             "--output-root",
             str(Path(args.output_root)),
+            "--init-adapter-dir",
+            str(cpt_adapter),
         ]
     )
     sft_adapter = run_root / "artifacts" / "sft" / "adapter"
 
-    # Phase D: DPO conditional
+    # Phase F: DPO conditional
     final_adapter = sft_adapter
     remaining = _minutes_remaining(start, args.core_budget_hours * 60)
     if remaining >= 90:
@@ -196,7 +273,7 @@ def main() -> None:
         if pref_adapter.exists():
             final_adapter = pref_adapter
 
-    # Phase E: post quick eval
+    # Phase G: post quick eval
     _run(
         [
             python_exec,
@@ -289,6 +366,8 @@ def main() -> None:
 
     state["completed_at_utc"] = now_utc_iso()
     state["base_model_id"] = base_model_id
+    state["cpt_adapter"] = str(cpt_adapter)
+    state["sft_adapter"] = str(sft_adapter)
     state["preference_stage"] = "dpo"
     state["final_adapter"] = str(final_adapter)
     state["core_minutes_elapsed"] = round((time.time() - start) / 60.0, 2)
