@@ -1,0 +1,93 @@
+global_mmlu:
+  quick:
+    dataset_id: CohereLabs/Global-MMLU-Lite
+    split: test
+    langs: [ja, ko, en]
+    lang_fields: [language, lang]
+    id_fields: [id, question_id, sample_id, uid]
+    matched_en_control: false
+    max_rows_per_lang: 8
+    n_shot: 2
+    max_new_tokens: 8
+    temperature: 0.0
+    top_p: 1.0
+  expanded:
+    dataset_id: CohereLabs/Global-MMLU
+    split: test
+    langs: [ja, ko, en]
+    lang_fields: [language, lang]
+    id_fields: [id, question_id, sample_id, uid]
+    matched_en_control: true
+    max_rows_per_lang: 8
+    n_shot: 2
+    max_new_tokens: 8
+    temperature: 0.0
+    top_p: 1.0
+
+flores:
+  quick:
+    dataset_id: openlanguagedata/flores_plus
+    split: devtest
+    max_rows: 8
+    directions:
+      - [en, ja]
+      - [ja, en]
+      - [en, ko]
+      - [ko, en]
+      - [ja, ko]
+      - [ko, ja]
+    max_new_tokens: 64
+    temperature: 0.0
+    top_p: 1.0
+  expanded:
+    dataset_id: openlanguagedata/flores_plus
+    split: devtest
+    max_rows: 8
+    directions:
+      - [en, ja]
+      - [ja, en]
+      - [en, ko]
+      - [ko, en]
+      - [ja, ko]
+      - [ko, ja]
+    max_new_tokens: 64
+    temperature: 0.0
+    top_p: 1.0
+
+aya_eval:
+  quick:
+    dataset_id: CohereLabs/aya_evaluation_suite
+    name: aya_human_annotated
+    split: test
+    langs: [ja, ko]
+    max_rows_per_lang: 8
+    max_new_tokens: 64
+    temperature: 0.0
+    top_p: 1.0
+  expanded:
+    dataset_id: CohereLabs/aya_evaluation_suite
+    name: aya_human_annotated
+    split: test
+    langs: [ja, ko]
+    max_rows_per_lang: 8
+    max_new_tokens: 64
+    temperature: 0.0
+    top_p: 1.0
+
+custom:
+  quick:
+    entity_max_new_tokens: 32
+    structured_max_new_tokens: 64
+    temperature: 0.0
+    top_p: 1.0
+  expanded:
+    entity_max_new_tokens: 32
+    structured_max_new_tokens: 64
+    temperature: 0.0
+    top_p: 1.0
+
+comparators:
+  gemma3_4b:
+    - sshleifer/tiny-gpt2
+  qwen3_4b:
+    - sshleifer/tiny-gpt2

@@ -314,7 +314,7 @@ def run_tokenizer_analysis(
     mixing_df.to_csv(output_path / "tables" / "script_mixing.csv", index=False)
     logger.info("Saved script mixing table")
 
-    print("\n=== Tokenizer Fertility Analysis (Aya Expanse 8B) ===")
+    print("\n=== Tokenizer Fertility Analysis ===")
     print(fertility_stats[["language_name", "mean_fertility", "std_fertility",
                            "mean_byte_fallback", "metric", "n_samples"]].to_string(index=False))
 

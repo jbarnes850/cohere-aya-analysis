@@ -160,19 +160,32 @@ training:
 selection:
   enabled: true
   weights:
-    translation: 0.40
-    language_consistency: 0.30
-    entity: 0.20
-    structured: 0.10
+    translation: 0.32
+    language_consistency: 0.24
+    entity: 0.16
+    structured: 0.08
+    mcq_format: 0.20
   samples:
     translation: 24
     language_consistency: 24
     entity: 24
     structured: 24
+    mcq_format: 24
   generation:
     max_new_tokens: 128
     temperature: 0.0
     top_p: 1.0
+  mcq:
+    enabled: true
+    dataset_id: CohereLabs/Global-MMLU-Lite
+    split: test
+    langs: [ja, ko]
+    lang_field_candidates: [language, lang]
+    id_fields: [id, sample_id, example_id, uuid]
+    fewshot_k: 2
+    max_choices: 4
+    max_rows_per_lang: 512
+    samples_per_lang: 12
 
 fallback:
   enabled: true

@@ -386,7 +386,7 @@ def run_logit_lens_with_model(
     entropy_df.to_csv(output_path / "tables" / "multilingual_entropy.csv", index=False)
     logger.info("Saved target_tokenization.csv, logit_lens_summary.csv, logit_lens_layers.csv, multilingual_entropy.csv")
 
-    print("\n=== Logit Lens Summary (Aya Expanse 8B) ===")
+    print("\n=== Logit Lens Summary ===")
     agg = summary_df.groupby("language_name").agg(
         mean_emergence=("emergence_layer", "mean"),
         mean_crystallization=("crystallization_layer", "mean"),

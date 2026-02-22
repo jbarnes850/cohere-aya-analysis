@@ -18,6 +18,8 @@ def run_analysis(args):
     """Run analysis pipeline."""
     results = {}
 
+    logger.info("Model: %s", args.model_id)
+
     logger.info("=" * 60)
     logger.info("Step 1: Tokenizer Analysis")
     logger.info("=" * 60)
@@ -25,6 +27,7 @@ def run_analysis(args):
 
     tokenizer_results = run_tokenizer_analysis(
         output_dir=args.output_dir,
+        model_id=args.model_id,
         n_ja_samples=args.n_ja_samples,
         use_japanese_dataset=args.use_japanese_dataset,
     )
@@ -35,7 +38,10 @@ def run_analysis(args):
 
     if needs_gpu:
         from src.logit_lens import load_model_and_tokenizer
-        model, tokenizer = load_model_and_tokenizer(device=args.device)
+        model, tokenizer = load_model_and_tokenizer(
+            model_id=args.model_id,
+            device=args.device,
+        )
 
     if not args.skip_logit_lens and model is not None:
         logger.info("=" * 60)
@@ -96,6 +102,11 @@ def main():
     parser = argparse.ArgumentParser(
         description="Aya Expanse 8B Multilingual Representation Analysis"
     )
+    parser.add_argument(
+        "--model-id",
+        default="CohereLabs/aya-expanse-8b",
+        help="Hugging Face model ID or local model path",
+    )
     parser.add_argument("--output-dir", default="outputs", help="Output directory")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
 
@@ -120,8 +131,9 @@ def main():
         ],
     )
 
-    logger.info("Starting Aya Expanse 8B Multilingual Analysis")
+    logger.info("Starting multilingual analysis")
     logger.info("Device: %s", args.device)
+    logger.info("Model: %s", args.model_id)
     logger.info("Output: %s", args.output_dir)
 
     run_analysis(args)

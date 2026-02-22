@@ -1,0 +1,94 @@
+global_mmlu:
+  quick:
+    dataset_id: CohereLabs/Global-MMLU-Lite
+    split: test
+    langs: [ja, ko, en]
+    lang_fields: [language, lang]
+    id_fields: [id, question_id, sample_id, uid]
+    matched_en_control: false
+    max_rows_per_lang: 300
+    n_shot: 5
+    max_new_tokens: 8
+    temperature: 0.0
+    top_p: 1.0
+  expanded:
+    dataset_id: CohereLabs/Global-MMLU
+    split: test
+    langs: [ja, ko, en]
+    lang_fields: [language, lang]
+    id_fields: [id, question_id, sample_id, uid]
+    matched_en_control: true
+    max_rows_per_lang: null
+    n_shot: 5
+    max_new_tokens: 8
+    temperature: 0.0
+    top_p: 1.0
+
+flores:
+  quick:
+    dataset_id: openlanguagedata/flores_plus
+    split: devtest
+    max_rows: 300
+    directions:
+      - [en, ja]
+      - [ja, en]
+      - [en, ko]
+      - [ko, en]
+      - [ja, ko]
+      - [ko, ja]
+    max_new_tokens: 256
+    temperature: 0.0
+    top_p: 1.0
+  expanded:
+    dataset_id: openlanguagedata/flores_plus
+    split: devtest
+    max_rows: null
+    directions:
+      - [en, ja]
+      - [ja, en]
+      - [en, ko]
+      - [ko, en]
+      - [ja, ko]
+      - [ko, ja]
+    max_new_tokens: 256
+    temperature: 0.0
+    top_p: 1.0
+
+aya_eval:
+  quick:
+    dataset_id: CohereLabs/aya_evaluation_suite
+    name: aya_human_annotated
+    split: test
+    langs: [ja, ko]
+    max_rows_per_lang: 200
+    max_new_tokens: 256
+    temperature: 0.0
+    top_p: 1.0
+  expanded:
+    dataset_id: CohereLabs/aya_evaluation_suite
+    name: aya_human_annotated
+    split: test
+    langs: [ja, ko]
+    max_rows_per_lang: 1000
+    max_new_tokens: 256
+    temperature: 0.0
+    top_p: 1.0
+
+custom:
+  quick:
+    entity_max_new_tokens: 96
+    structured_max_new_tokens: 128
+    temperature: 0.0
+    top_p: 1.0
+  expanded:
+    entity_max_new_tokens: 96
+    structured_max_new_tokens: 128
+    temperature: 0.0
+    top_p: 1.0
+
+comparators:
+  gemma3_4b:
+    - google/gemma-3-4b-it
+  qwen3_4b:
+    - Qwen/Qwen3-4B-Instruct
+    - Qwen/Qwen2.5-3B-Instruct
