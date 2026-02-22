@@ -15,6 +15,20 @@ data:
   min_chars: 1
   max_chars: 2000
   dedup: true
+  quality:
+    enabled: true
+    min_quality_score: 0.20
+    drop_lang_mismatch: false
+    max_repeated_line_ratio: 0.80
+    max_repeated_char_run: 12
+    repetition_penalty: 0.40
+    lang_mismatch_penalty: 0.10
+  near_dedup:
+    enabled: false
+    hamming_threshold: 3
+    band_bits: 16
+    max_bucket_candidates: 32
+    simhash_max_features: 128
   bucket_weights:
     ja_knowledge: 0.25
     ko_knowledge: 0.25

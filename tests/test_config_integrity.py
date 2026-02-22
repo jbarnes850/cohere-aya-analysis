@@ -82,7 +82,12 @@ def test_benchmark_selection_splits_are_not_test_for_training_time():
     sft_cfg = yaml.safe_load(Path("training/configs/tiny_aya_ja_ko_sft.yaml").read_text())
     dpo_cfg = yaml.safe_load(Path("training/configs/tiny_aya_ja_ko_dpo.yaml").read_text())
     cpt_cfg = yaml.safe_load(Path("training/configs/tiny_aya_ja_ko_cpt.yaml").read_text())
+    cpt_near_cfg = yaml.safe_load(Path("training/configs/tiny_aya_ja_ko_cpt_near_dedup_ablation.yaml").read_text())
 
     assert sft_cfg["selection"]["mcq"]["split"] == "dev"
     assert dpo_cfg["data"]["mcq_preference"]["split"] == "dev"
     assert cpt_cfg["data"]["mcq_dev"]["split"] == "dev"
+    assert cpt_cfg["data"]["quality"]["enabled"] is True
+    assert cpt_cfg["data"]["quality"]["min_quality_score"] >= 0.5
+    assert cpt_cfg["data"]["near_dedup"]["enabled"] is False
+    assert cpt_near_cfg["data"]["near_dedup"]["enabled"] is True

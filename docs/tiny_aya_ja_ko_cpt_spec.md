@@ -51,9 +51,10 @@ Target token mix (initial):
 
 Rules:
 
-- Dedup at document and near-duplicate levels.
+- Exact document-level dedup is mandatory.
+- Near-duplicate dedup should run as an explicit ablation, not the default canonical profile.
 - Language-ID + malformed filtering.
-- Quality scoring/filtering before sampling.
+- Quality scoring/filtering before sampling (minimal canonical profile: length + repetition + language mismatch).
 - Explicit leakage blocklist: exclude any eval test content/IDs for Global-MMLU, FLORES devtest, and Aya eval suites.
 
 ## 5) Training Pipeline (Recommended)

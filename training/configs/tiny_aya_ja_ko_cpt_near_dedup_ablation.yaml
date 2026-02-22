@@ -1,4 +1,4 @@
-run_prefix: tiny_aya_ja_ko_cpt
+run_prefix: tiny_aya_ja_ko_cpt_near_dedup_ablation
 seed: 42
 
 paths:
@@ -24,7 +24,7 @@ data:
     repetition_penalty: 0.60
     lang_mismatch_penalty: 0.20
   near_dedup:
-    enabled: false
+    enabled: true
     hamming_threshold: 3
     band_bits: 16
     max_bucket_candidates: 64

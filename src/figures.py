@@ -63,7 +63,7 @@ def plot_tokenizer_fertility(
 
     colors = [COLORS.get(lang, "#999999") for lang in languages]
 
-    bars = ax.barh(
+    ax.barh(
         range(len(languages)), fertility, xerr=errors,
         color=colors, edgecolor="white", linewidth=0.5,
         capsize=3, error_kw={"linewidth": 1},
@@ -237,7 +237,7 @@ def plot_intervention_success(
 
         colors = ["#2A9D8F" if r > 20 else "#E76F51" if r > 0 else "#999999" for r in success_rates]
 
-        bars = ax.barh(range(len(experiments)), success_rates, color=colors, edgecolor="white")
+        ax.barh(range(len(experiments)), success_rates, color=colors, edgecolor="white")
         ax.set_yticks(range(len(experiments)))
         ax.set_yticklabels(experiments, fontsize=10)
         ax.set_xlabel("Success Rate (%)", fontsize=13, fontweight="bold")

@@ -18,6 +18,7 @@ from datasets import load_dataset
 
 from src.frontier_utils import (
     assert_no_benchmark_test_split,
+    detect_script_language,
     dump_yaml,
     ensure_dir,
     load_yaml,
@@ -54,6 +55,106 @@ def _clean_text(text: str) -> str:
 
 def _hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _lang_matches_expected(expected: str, detected: str) -> bool:
+    if detected == "unknown":
+        return True
+    if expected == "ja":
+        # Kanji-heavy Japanese can be detected as zh.
+        return detected in {"ja", "zh"}
+    if expected == "ko":
+        return detected == "ko"
+    if expected == "en":
+        return detected == "en"
+    return True
+
+
+def _quality_tokens(text: str, fallback_chars: int) -> List[str]:
+    token_re = re.compile(r"[A-Za-z]+|[0-9]+|[\u3040-\u30ff]+|[\u3400-\u9fff]+|[\uac00-\ud7a3]+")
+    tokens = [t.lower() for t in token_re.findall(text)]
+    if len(tokens) >= 8:
+        return tokens
+    compact = re.sub(r"\s+", "", text)
+    if not compact:
+        return []
+    return list(compact[:fallback_chars])
+
+
+def _assistant_quality_view(text: str) -> str:
+    lines = text.splitlines()
+    last_assistant_idx = -1
+    for idx, line in enumerate(lines):
+        if line.startswith("assistant:"):
+            last_assistant_idx = idx
+    if last_assistant_idx < 0:
+        return text
+    first_line = lines[last_assistant_idx][len("assistant:") :].strip()
+    trailing = [ln.rstrip() for ln in lines[last_assistant_idx + 1 :]]
+    return "\n".join([first_line] + trailing).strip()
+
+
+def _simhash64(text: str, max_features: int) -> int:
+    tokens = _quality_tokens(text, fallback_chars=max_features)
+    if not tokens:
+        return 0
+    weights = [0] * 64
+    for tok in tokens[:max_features]:
+        hv = int.from_bytes(hashlib.blake2b(tok.encode("utf-8"), digest_size=8).digest(), "big")
+        for bit in range(64):
+            weights[bit] += 1 if ((hv >> bit) & 1) else -1
+    fp = 0
+    for bit, score in enumerate(weights):
+        if score >= 0:
+            fp |= 1 << bit
+    return fp
+
+
+def _hamming64(a: int, b: int) -> int:
+    return (a ^ b).bit_count()
+
+
+def _quality_score(text: str, lang: str, task: str, cfg: Dict[str, Any]) -> Tuple[float, Dict[str, Any]]:
+    quality_cfg = cfg.get("data", {}).get("quality", {})
+    max_repeated_line_ratio = float(quality_cfg.get("max_repeated_line_ratio", 0.45))
+    max_repeated_char_run = max(4, int(quality_cfg.get("max_repeated_char_run", 8)))
+    repetition_penalty = float(quality_cfg.get("repetition_penalty", 0.60))
+    lang_mismatch_penalty = float(quality_cfg.get("lang_mismatch_penalty", 0.20))
+    quality_text = _assistant_quality_view(text)
+    normalized = re.sub(r"\s+", " ", quality_text).strip()
+    if not normalized:
+        return 0.0, {"lang_match": False, "detected_lang": "unknown"}
+
+    lines = [ln.strip() for ln in quality_text.splitlines() if ln.strip()]
+    kept_lines = [ln for ln in lines if len(ln) >= 10]
+    line_counts = Counter(kept_lines)
+    repeated_lines = sum(cnt for cnt in line_counts.values() if cnt > 1)
+    repeated_line_ratio = (repeated_lines / len(kept_lines)) if kept_lines else 0.0
+
+    has_long_char_repeat = bool(re.search(rf"(.)\1{{{max_repeated_char_run},}}", normalized))
+
+    detected_lang = detect_script_language(normalized)
+    lang_match = True
+    if lang in {"ja", "ko", "en"} and task != "translation":
+        lang_match = _lang_matches_expected(lang, detected_lang)
+
+    score = 1.0
+    repetition_bad = repeated_line_ratio > max_repeated_line_ratio or has_long_char_repeat
+    if repetition_bad:
+        score -= repetition_penalty
+    if not lang_match:
+        score -= lang_mismatch_penalty
+    score = max(0.0, min(1.0, score))
+
+    return score, {
+        "lang_match": lang_match,
+        "detected_lang": detected_lang,
+        "repeated_line_ratio": repeated_line_ratio,
+        "max_repeated_line_ratio": max_repeated_line_ratio,
+        "max_repeated_char_run": max_repeated_char_run,
+        "has_long_char_repeat": has_long_char_repeat,
+        "repetition_bad": repetition_bad,
+    }
 
 
 def _extract_mcq(row: Dict[str, Any], id_fields: Sequence[str]) -> Optional[Dict[str, Any]]:
@@ -209,16 +310,108 @@ def _append_pool_item(
     )
 
 
-def _dedup_pool(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _quality_and_dedup_pool(items: List[Dict[str, Any]], cfg: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    data_cfg = cfg.get("data", {})
+    quality_cfg = data_cfg.get("quality", {})
+    near_dedup_cfg = data_cfg.get("near_dedup", {})
+
+    enable_exact_dedup = bool(data_cfg.get("dedup", True))
+    quality_enabled = bool(quality_cfg.get("enabled", True))
+    drop_lang_mismatch = bool(quality_cfg.get("drop_lang_mismatch", quality_enabled))
+    min_quality_score = float(quality_cfg.get("min_quality_score", 0.55))
+    near_enabled = bool(near_dedup_cfg.get("enabled", True))
+    hamming_threshold = max(0, int(near_dedup_cfg.get("hamming_threshold", 3)))
+    band_bits = max(8, min(32, int(near_dedup_cfg.get("band_bits", 16))))
+    max_bucket_candidates = max(8, int(near_dedup_cfg.get("max_bucket_candidates", 64)))
+    simhash_max_features = max(64, int(near_dedup_cfg.get("simhash_max_features", 256)))
+
     out: List[Dict[str, Any]] = []
-    seen: set[str] = set()
+    seen_exact: set[str] = set()
+    kept_fingerprints: List[int] = []
+    band_index: Dict[Tuple[str, int, int], List[int]] = {}
+    stats: Dict[str, Any] = {
+        "input_rows": len(items),
+        "kept_rows": 0,
+        "dropped_duplicate_exact": 0,
+        "dropped_duplicate_near": 0,
+        "dropped_low_quality": 0,
+        "dropped_lang_mismatch": 0,
+        "quality_score_mean": 0.0,
+        "quality_score_p10": 0.0,
+        "quality_score_p90": 0.0,
+    }
+    quality_scores: List[float] = []
+
     for item in items:
-        h = _hash_text(item["text"])
-        if h in seen:
+        text = str(item.get("text", "")).strip()
+        if not text:
+            stats["dropped_low_quality"] += 1
             continue
-        seen.add(h)
-        out.append(item)
-    return out
+        lang = normalize_lang(str(item.get("lang", ""))) or "unknown"
+        task = str(item.get("task", "instruction"))
+
+        score, details = _quality_score(text, lang=lang, task=task, cfg=cfg)
+        quality_scores.append(score)
+        is_lang_mismatch = quality_enabled and drop_lang_mismatch and (not bool(details["lang_match"]))
+        is_low_quality = quality_enabled and score < min_quality_score
+        if is_lang_mismatch:
+            stats["dropped_lang_mismatch"] += 1
+        if is_low_quality:
+            stats["dropped_low_quality"] += 1
+        if is_lang_mismatch or is_low_quality:
+            continue
+
+        if enable_exact_dedup:
+            exact_hash = _hash_text(text)
+            if exact_hash in seen_exact:
+                stats["dropped_duplicate_exact"] += 1
+                continue
+            seen_exact.add(exact_hash)
+
+        fp = 0
+        if near_enabled:
+            fp = _simhash64(text, max_features=simhash_max_features)
+            candidate_ids: set[int] = set()
+            for bit_offset in range(0, 64, band_bits):
+                mask_width = min(band_bits, 64 - bit_offset)
+                band_val = (fp >> bit_offset) & ((1 << mask_width) - 1)
+                key = (lang, bit_offset, band_val)
+                for idx in band_index.get(key, []):
+                    candidate_ids.add(idx)
+
+            near_duplicate = False
+            for idx in candidate_ids:
+                if _hamming64(fp, kept_fingerprints[idx]) <= hamming_threshold:
+                    near_duplicate = True
+                    break
+            if near_duplicate:
+                stats["dropped_duplicate_near"] += 1
+                continue
+
+        row = dict(item)
+        row["quality_score"] = round(float(score), 6)
+        out.append(row)
+        if near_enabled:
+            out_idx = len(out) - 1
+            kept_fingerprints.append(fp)
+            for bit_offset in range(0, 64, band_bits):
+                mask_width = min(band_bits, 64 - bit_offset)
+                band_val = (fp >> bit_offset) & ((1 << mask_width) - 1)
+                key = (lang, bit_offset, band_val)
+                bucket = band_index.setdefault(key, [])
+                bucket.append(out_idx)
+                if len(bucket) > max_bucket_candidates:
+                    del bucket[0]
+
+    if quality_scores:
+        ordered = sorted(quality_scores)
+        p10_idx = int((len(ordered) - 1) * 0.10)
+        p90_idx = int((len(ordered) - 1) * 0.90)
+        stats["quality_score_mean"] = round(sum(quality_scores) / len(quality_scores), 6)
+        stats["quality_score_p10"] = round(ordered[p10_idx], 6)
+        stats["quality_score_p90"] = round(ordered[p90_idx], 6)
+    stats["kept_rows"] = len(out)
+    return out, stats
 
 
 def build_cpt_dataset(
@@ -307,9 +500,9 @@ def build_cpt_dataset(
                     cfg,
                 )
 
-    if bool(cfg["data"].get("dedup", True)):
-        for key in pools:
-            pools[key] = _dedup_pool(pools[key])
+    pool_quality: Dict[str, Dict[str, Any]] = {}
+    for key in pools:
+        pools[key], pool_quality[key] = _quality_and_dedup_pool(pools[key], cfg)
 
     weights = {k: float(v) for k, v in cfg["data"]["bucket_weights"].items()}
     total_requested = int(cfg["data"].get("total_texts", 120000))
@@ -347,6 +540,15 @@ def build_cpt_dataset(
         "bucket_counts": dict(Counter(x.get("bucket", "unknown") for x in selected)),
         "lang_counts": dict(Counter(x.get("lang", "unknown") for x in selected)),
         "source_counts": dict(Counter(x.get("source", "unknown") for x in selected)),
+        "pool_quality": pool_quality,
+        "quality_filters": {
+            "enabled": bool(cfg.get("data", {}).get("quality", {}).get("enabled", True)),
+            "min_quality_score": float(cfg.get("data", {}).get("quality", {}).get("min_quality_score", 0.55)),
+            "drop_lang_mismatch": bool(cfg.get("data", {}).get("quality", {}).get("drop_lang_mismatch", True)),
+            "near_dedup_enabled": bool(cfg.get("data", {}).get("near_dedup", {}).get("enabled", True)),
+            "near_dedup_hamming_threshold": int(cfg.get("data", {}).get("near_dedup", {}).get("hamming_threshold", 3)),
+            "near_dedup_band_bits": int(cfg.get("data", {}).get("near_dedup", {}).get("band_bits", 16)),
+        },
         "leakage_guard": {
             "benchmark_test_split_allowed_for_training": False,
         },

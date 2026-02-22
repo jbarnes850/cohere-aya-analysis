@@ -108,6 +108,7 @@ This repository also includes a full TRL-based post-training and evaluation pipe
 Configs:
 
 - `training/configs/tiny_aya_ja_ko_cpt.yaml`
+- `training/configs/tiny_aya_ja_ko_cpt_near_dedup_ablation.yaml` (optional near-dedup ablation)
 - `training/configs/tiny_aya_ja_ko_sft.yaml`
 - `training/configs/tiny_aya_ja_ko_dpo.yaml`
 - `eval/configs/quick_8h.yaml`

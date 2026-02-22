@@ -43,7 +43,7 @@ Improve Japanese and Korean quality and efficiency on Tiny Aya Global by targeti
   - `max_steps=1000`
   - `lr=1e-4`, cosine, warmup 5%
 - DPO (conditional):
-  - `max_steps=250`
+  - `max_steps=150`
   - `lr=2e-5`
   - `beta=0.1` (sigmoid loss)
 - QLoRA fallback enabled on OOM
@@ -95,6 +95,7 @@ Improve Japanese and Korean quality and efficiency on Tiny Aya Global by targeti
 - Git commit: `<fill>`
 - Configs:
   - `training/configs/tiny_aya_ja_ko_cpt.yaml`
+  - `training/configs/tiny_aya_ja_ko_cpt_near_dedup_ablation.yaml` (optional)
   - `training/configs/tiny_aya_ja_ko_sft.yaml`
   - `training/configs/tiny_aya_ja_ko_dpo.yaml`
   - `eval/configs/quick_8h.yaml`
