@@ -20,6 +20,10 @@ def _run(cmd: List[str]) -> None:
     subprocess.run(cmd, check=True)
 
 
+def _milestone(name: str) -> None:
+    print(f"MILESTONE: {name}", flush=True)
+
+
 def _minutes_remaining(start_time: float, core_budget_minutes: float) -> float:
     elapsed = (time.time() - start_time) / 60.0
     return core_budget_minutes - elapsed
@@ -37,11 +41,7 @@ def _collect_flores_eval_splits(eval_cfg: Dict[str, Any]) -> set[str]:
     return splits
 
 
-def _validate_no_flores_split_overlap(
-    sft_cfg: Dict[str, Any],
-    quick_eval_cfg: Dict[str, Any],
-    expanded_eval_cfg: Dict[str, Any],
-) -> None:
+def _validate_no_flores_split_overlap(sft_cfg: Dict[str, Any], *eval_cfgs: Dict[str, Any]) -> None:
     train_splits: set[str] = set()
     for ds_cfg in sft_cfg.get("datasets", {}).values():
         if not isinstance(ds_cfg, dict):
@@ -54,7 +54,9 @@ def _validate_no_flores_split_overlap(
     if not train_splits:
         return
 
-    eval_splits = _collect_flores_eval_splits(quick_eval_cfg) | _collect_flores_eval_splits(expanded_eval_cfg)
+    eval_splits: set[str] = set()
+    for eval_cfg in eval_cfgs:
+        eval_splits |= _collect_flores_eval_splits(eval_cfg)
     overlap = sorted(train_splits & eval_splits)
     if overlap:
         raise RuntimeError(
@@ -100,11 +102,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sft-config", default="training/configs/tiny_aya_ja_ko_sft.yaml")
     parser.add_argument("--pref-config", default="training/configs/tiny_aya_ja_ko_dpo.yaml")
     parser.add_argument("--quick-eval-config", default="eval/configs/quick_8h.yaml")
+    parser.add_argument("--intermediate-eval-config", default=None)
     parser.add_argument("--expanded-eval-config", default="eval/configs/expanded_frontier.yaml")
     parser.add_argument("--output-root", default="outputs/posttrain")
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--core-budget-hours", type=float, default=8.0)
     parser.add_argument("--skip-expanded", action="store_true")
+    parser.add_argument("--skip-quick-pre", action="store_true")
     return parser.parse_args()
 
 
@@ -116,8 +120,9 @@ def main() -> None:
     sft_cfg = load_yaml(args.sft_config)
     pref_cfg = load_yaml(args.pref_config)
     quick_eval_cfg = load_yaml(args.quick_eval_config)
+    intermediate_eval_cfg = load_yaml(args.intermediate_eval_config) if args.intermediate_eval_config else quick_eval_cfg
     expanded_eval_cfg = load_yaml(args.expanded_eval_config)
-    _validate_no_flores_split_overlap(sft_cfg, quick_eval_cfg, expanded_eval_cfg)
+    _validate_no_flores_split_overlap(sft_cfg, intermediate_eval_cfg, quick_eval_cfg, expanded_eval_cfg)
     _validate_training_split_safety(sft_cfg, pref_cfg, cpt_cfg)
     base_model_id = str(sft_cfg["model"]["base_model"])
 
@@ -129,10 +134,21 @@ def main() -> None:
     state: Dict[str, Any] = {
         "run_id": run_id,
         "started_at_utc": now_utc_iso(),
-        "phase_order": ["build_sft_data", "build_cpt_data", "quick_pre", "cpt", "sft", "dpo_optional", "quick_post"],
+        "phase_order": [
+            "build_sft_data",
+            "build_cpt_data",
+            "quick_pre_optional",
+            "cpt",
+            "cpt_eval_smoke",
+            "sft",
+            "sft_eval_smoke",
+            "dpo_optional",
+            "quick_post",
+        ],
     }
 
     # Phase A: build SFT dataset (reused as a source pool for CPT data build).
+    _milestone("BUILD_SFT_DATA_START")
     _run(
         [
             python_exec,
@@ -149,6 +165,7 @@ def main() -> None:
     data_dir = run_root / "artifacts" / "data"
 
     # Phase B: build CPT text dataset from SFT pool + MCQ dev augmentation.
+    _milestone("BUILD_CPT_DATA_START")
     _run(
         [
             python_exec,
@@ -169,25 +186,28 @@ def main() -> None:
     cpt_data_dir = run_root / "artifacts" / "cpt_data"
 
     # Phase C: baseline quick eval
-    _run(
-        [
-            python_exec,
-            "-m",
-            "eval.run_eval_suite",
-            "--config",
-            args.quick_eval_config,
-            "--mode",
-            "quick",
-            "--model-id",
-            base_model_id,
-            "--model-label",
-            "tiny_aya_base",
-            "--output-dir",
-            str(metrics_root / "quick_pre"),
-        ]
-    )
+    if not args.skip_quick_pre:
+        _milestone("QUICK_PRE_START")
+        _run(
+            [
+                python_exec,
+                "-m",
+                "eval.run_eval_suite",
+                "--config",
+                args.quick_eval_config,
+                "--mode",
+                "quick",
+                "--model-id",
+                base_model_id,
+                "--model-label",
+                "tiny_aya_base",
+                "--output-dir",
+                str(metrics_root / "quick_pre"),
+            ]
+        )
 
     # Phase D: CPT
+    _milestone("CPT_START")
     _run(
         [
             python_exec,
@@ -207,7 +227,30 @@ def main() -> None:
     if not cpt_adapter.exists():
         raise RuntimeError(f"CPT adapter not found after CPT phase: {cpt_adapter}")
 
-    # Phase E: SFT
+    # Phase E: CPT smoke eval
+    _milestone("CPT_EVAL_START")
+    _run(
+        [
+            python_exec,
+            "-m",
+            "eval.run_eval_suite",
+            "--config",
+            (args.intermediate_eval_config or args.quick_eval_config),
+            "--mode",
+            "quick",
+            "--model-id",
+            base_model_id,
+            "--model-label",
+            "tiny_aya_cpt",
+            "--adapter-dir",
+            str(cpt_adapter),
+            "--output-dir",
+            str(metrics_root / "quick_cpt_post"),
+        ]
+    )
+
+    # Phase F: SFT
+    _milestone("SFT_START")
     _run(
         [
             python_exec,
@@ -227,10 +270,33 @@ def main() -> None:
     )
     sft_adapter = run_root / "artifacts" / "sft" / "adapter"
 
-    # Phase F: DPO conditional
+    # Phase G: SFT smoke eval
+    _milestone("SFT_EVAL_START")
+    _run(
+        [
+            python_exec,
+            "-m",
+            "eval.run_eval_suite",
+            "--config",
+            (args.intermediate_eval_config or args.quick_eval_config),
+            "--mode",
+            "quick",
+            "--model-id",
+            base_model_id,
+            "--model-label",
+            "tiny_aya_sft",
+            "--adapter-dir",
+            str(sft_adapter),
+            "--output-dir",
+            str(metrics_root / "quick_sft_post"),
+        ]
+    )
+
+    # Phase H: DPO conditional
     final_adapter = sft_adapter
     remaining = _minutes_remaining(start, args.core_budget_hours * 60)
     if remaining >= 90:
+        _milestone("PREF_BUILD_START")
         _run(
             [
                 python_exec,
@@ -250,6 +316,7 @@ def main() -> None:
         )
 
         pref_dir = run_root / "artifacts" / "pref_data"
+        _milestone("DPO_START")
         _run(
             [
                 python_exec,
@@ -273,7 +340,8 @@ def main() -> None:
         if pref_adapter.exists():
             final_adapter = pref_adapter
 
-    # Phase G: post quick eval
+    # Phase I: post quick eval
+    _milestone("QUICK_POST_START")
     _run(
         [
             python_exec,
@@ -293,6 +361,7 @@ def main() -> None:
             str(metrics_root / "quick_post"),
         ]
     )
+    _milestone("QUICK_POST_READY")
 
     # Expanded eval + comparators (can exceed 8h)
     if not args.skip_expanded:

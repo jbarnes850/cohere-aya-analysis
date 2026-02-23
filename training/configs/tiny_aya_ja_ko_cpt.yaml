@@ -17,12 +17,9 @@ data:
   dedup: true
   quality:
     enabled: true
-    min_quality_score: 0.55
     drop_lang_mismatch: true
     max_repeated_line_ratio: 0.45
     max_repeated_char_run: 8
-    repetition_penalty: 0.60
-    lang_mismatch_penalty: 0.20
   near_dedup:
     enabled: false
     hamming_threshold: 3
@@ -78,7 +75,7 @@ training:
   per_device_train_batch_size: 2
   per_device_eval_batch_size: 1
   gradient_accumulation_steps: 32
-  max_steps: 4000
+  max_steps: 700
   learning_rate: 1.0e-5
   lr_scheduler_type: cosine
   warmup_ratio: 0.02
