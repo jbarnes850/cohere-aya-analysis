@@ -1,4 +1,4 @@
-"""Logit lens analysis on Aya Expanse 8B."""
+"""Logit lens utilities for Aya-family causal LMs."""
 
 import gc
 import logging
@@ -14,25 +14,35 @@ from src.prompts import LANGUAGE_NAMES, Prompt, get_all_prompts
 
 logger = logging.getLogger(__name__)
 
-MODEL_ID = "CohereLabs/aya-expanse-8b"
-
 
 def load_model_and_tokenizer(
-    model_id: str = MODEL_ID,
+    model_id: str,
     device: str = "cuda",
     dtype: torch.dtype = None,
 ) -> Tuple[AutoModelForCausalLM, AutoTokenizer]:
     """Load model and tokenizer."""
     if dtype is None:
-        dtype = torch.bfloat16 if device != "cpu" else torch.float32
+        if device == "cpu":
+            dtype = torch.float32
+        elif device == "mps":
+            dtype = torch.float16
+        else:
+            dtype = torch.bfloat16
     logger.info("Loading model: %s (dtype=%s, device=%s)", model_id, dtype, device)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
-    device_map = "auto" if device != "cpu" else {"": "cpu"}
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id,
-        torch_dtype=dtype,
-        device_map=device_map,
-    )
+    if device == "mps":
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            torch_dtype=dtype,
+            low_cpu_mem_usage=True,
+        ).to("mps")
+    else:
+        device_map = "auto" if device != "cpu" else {"": "cpu"}
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            torch_dtype=dtype,
+            device_map=device_map,
+        )
     model.eval()
     return model, tokenizer
 
@@ -48,7 +58,7 @@ class LogitLensAnalyzer:
     ):
         self.model = model
         self.tokenizer = tokenizer
-        self.device = device
+        self.device = next(model.parameters()).device
         self.hidden_states: Dict[int, torch.Tensor] = {}
         self._hooks = []
 
@@ -386,7 +396,7 @@ def run_logit_lens_with_model(
     entropy_df.to_csv(output_path / "tables" / "multilingual_entropy.csv", index=False)
     logger.info("Saved target_tokenization.csv, logit_lens_summary.csv, logit_lens_layers.csv, multilingual_entropy.csv")
 
-    print("\n=== Logit Lens Summary (Aya Expanse 8B) ===")
+    print("\n=== Logit Lens Summary ===")
     agg = summary_df.groupby("language_name").agg(
         mean_emergence=("emergence_layer", "mean"),
         mean_crystallization=("crystallization_layer", "mean"),
@@ -403,8 +413,8 @@ def run_logit_lens_with_model(
 
 
 def run_logit_lens(
+    model_id: str,
     output_dir: str = "outputs",
-    model_id: str = MODEL_ID,
     device: str = "cuda",
     top_k: int = 10,
 ) -> Dict[str, Any]:
@@ -423,6 +433,3 @@ def run_logit_lens(
     return results
 
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    results = run_logit_lens()

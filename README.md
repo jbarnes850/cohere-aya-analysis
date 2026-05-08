@@ -1,115 +1,96 @@
-# Multilingual Representation Analysis: Aya Expanse 8B
+# Multilingual Interpretability on Tiny Aya
 
-Interpretability analysis examining how Aya Expanse 8B processes multilingual content internally, with Japanese (JA) and Korean (KO) as the primary case study.
+Code accompanying an investigation of how Cohere's Tiny Aya model family carries multilingual meaning from input through internal representation to decoded behavior. The Tiny Aya base / global / water variants share an identical pre-training run and differ only in their post-training stage, which gives a controlled experimental handle for isolating post-training effects on the multilingual route.
 
-**[Read the full technical report](docs/report.md)**
+These scripts produce the activations, paired representational measurements, sparse-autoencoder dictionaries, and residual-stream patches used in the working writeup at [jbarnes850.github.io](https://jbarnes850.github.io). The original eval rows are not bundled with this release; the schema below specifies what to provide so the pipeline runs on any Tiny-Aya-shaped corpus.
 
----
+## Commands
 
-## Motivation
+| Script | Purpose |
+|---|---|
+| `build_triangulation_corpus.py` | Build the cross-language triangulation corpus from FLORES+ devtest (112 rows: 4 language pairs, 14 source indices, 2 sides). |
+| `build_sae_activation_corpus.py` | Combine a user-provided eval-row packet with FLORES+ rows to produce the SAE activation corpus. |
+| `analyze_triangulation.py` | Paired representational geometry across the three Tiny Aya checkpoints over the triangulation corpus. |
+| `extract_activations.py` | Per-prompt residual-stream extraction at chosen layers; writes sharded NPY plus parquet metadata. |
+| `train_sae.py` | TopK sparse-autoencoder training on saved activations, with an auxiliary dead-feature loss. |
+| `analyze_sae_features.py` | Discrimination, max-activating prompts, and feature steering on trained SAEs. |
+| `analyze_english_pivot.py` | Test the English-pivot hypothesis at the multilingual decoding stage. |
+| `causal_validation.py` | Bidirectional residual-stream patching to test triangulation findings causally. |
 
-Aya Expanse 8B shows strong multilingual generation performance on benchmarks like m-ArenaHard and FLORES, but CJK (Chinese/Japanese/Korean) languages trail Arabic and other high-resource languages in head-to-head evaluations. This analysis uses interpretability methods to understand *where* in the network that gap originates — information that informs training strategy.
+## Library modules
 
-The core question: Is the CJK deficit a **representation problem** (the model lacks good internal understanding) or a **decoding problem** (the model understands but struggles to produce correct output)?
+| Module | Purpose |
+|---|---|
+| `src/causal_patching.py` | Patching primitives (token divergence, teacher-forced log-prob, patched log-prob). |
+| `src/logit_lens.py` | Model loading and layer-by-layer logit-lens utilities for Aya-family causal LMs. |
+| `src/prompts.py` | Multilingual prompt suite across en, ja, ko, zh, vi, id, th. |
 
-## Approach
-
-We apply three complementary interpretability methods:
-
-| Method | What it measures |
-|--------|------------------|
-| **CKA (Centered Kernel Alignment)** | Whether hidden states share the same geometric structure across languages |
-| **Logit Lens** | Which layer the model "knows" the answer vs. commits to a surface form |
-| **Entropy Curve** | Whether Aya follows the expected three-phase multilingual processing pattern |
-
-These methods are applied to 70 semantically equivalent prompts across 7 languages (EN, JA, KO, ZH, VI, ID, TH) spanning 10 categories.
-
-## Key Findings
-
-1. **Representations are aligned.** CKA between JA-EN is 0.93-0.99 at every layer. The model builds equivalent internal representations regardless of input language.
-
-2. **The gap is in late-layer decoding.** Non-English languages require 3-6 extra layers after concept emergence to produce the correct surface form. English averages 1.3 extra layers; JA averages 4.0.
-
-3. **JA-KO show interference.** The JA-KO pair shows larger late-layer CKA divergence than any CJK-EN pair, suggesting Japanese and Korean may compete for decoding resources.
-
-![CKA Representation Similarity](outputs/figures/representation_similarity.png)
-*Cross-lingual CKA remains above 0.93 at all layers. The late-layer dip (layer 31) is where language-specific decoding occurs.*
-
-The full analysis with methodology, tables, and figures is in **[docs/report.md](docs/report.md)**.
-
----
-
-## Reproducing the Analysis
-
-### Requirements
-
-- Python 3.10+
-- NVIDIA GPU with ~20GB VRAM (A100 recommended)
-- 32GB+ system RAM
-- ~20GB storage for model weights
-
-### Quick Start
+## Quickstart
 
 ```bash
-# Install dependencies
+# Python 3.11+
 pip install -r requirements.txt
 
-# Run full analysis
-python run_analysis.py --device cuda
+# Build the FLORES+ derived corpus (CPU)
+python scripts/build_triangulation_corpus.py
 
-# Run tokenizer analysis only (CPU, no GPU required)
-python run_analysis.py --skip-logit-lens --skip-cka --device cpu
+# Build the SAE activation corpus (requires your own eval-row JSONL; schema below)
+python scripts/build_sae_activation_corpus.py --packet path/to/your_rows.jsonl
+
+# Extract activations from a Tiny Aya checkpoint (GPU)
+python scripts/extract_activations.py \
+    --model-id CohereLabs/tiny-aya-base \
+    --model-slug tiny-aya-base \
+    --run-tag my_run \
+    --device cuda
 ```
 
-### Repository Structure
+Every script accepts `--smoke` for a CPU sanity pass and `--help` for full options.
 
-```
-cohere-aya-analysis/
-├── run_analysis.py        # Single entry point
-├── requirements.txt       # Dependencies
-├── src/
-│   ├── prompts.py                    # Multilingual prompt suite
-│   ├── tokenizer_analysis.py         # Token fertility, entity splitting
-│   ├── logit_lens.py                 # Layer-by-layer analysis
-│   ├── representation_similarity.py  # CKA computation
-│   └── figures.py                    # Visualization
-├── outputs/
-│   ├── figures/           # Generated visualizations (gitignored)
-│   └── tables/            # Raw data (CSV, gitignored)
-└── docs/
-    ├── report.md          # Frozen report (public artifact)
-    └── figures/           # Frozen figures
-```
+## Inputs
 
-### Output Files
+### Models
 
-| File | Description |
-|------|-------------|
-| `docs/report.md` | Frozen technical report (public artifact) |
-| `docs/figures/*.png` | Frozen figures used in the report |
-| `outputs/tables/*.csv` | Raw data for all analyses (generated) |
-| `outputs/figures/*.png` | Visualizations (generated) |
+`CohereLabs/tiny-aya-base`, `CohereLabs/tiny-aya-global`, `CohereLabs/tiny-aya-water` on Hugging Face. Each script takes `--model-id` (or `--base-model-id` / `--global-model-id` for `causal_validation.py`) as a Hugging Face identifier or a local path to a materialized checkpoint.
 
----
+### Datasets
 
-## Model & Terms
+`openlanguagedata/flores_plus`, loaded by the build scripts via `datasets.load_dataset`.
 
-Model weights and tokenizer: [CohereLabs/aya-expanse-8b](https://huggingface.co/CohereLabs/aya-expanse-8b). Use is subject to the terms and license in the model card.
+### Eval-row JSONL packet
 
-## Data Sources
+Several scripts require an eval-row packet via `--packet` or `--packet-path`. Each row is a JSON object:
 
-This analysis uses the following datasets. Please review and follow their terms:
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `packet_row_id` | string | yes | Unique row id with a prefix from the table below. |
+| `source_row_id` | string | yes | Upstream source-row identifier. |
+| `prompt` | string | yes | Model input. |
+| `language` | string | yes | Language code (`ja`, `ko`, `jpn_Jpan`, ...). |
+| `task_family` | string | optional | Inferred from `packet_row_id` prefix when omitted. |
 
-- [openlanguagedata/flores_plus](https://huggingface.co/datasets/openlanguagedata/flores_plus) (FLORES+ devtest for non-JA fertility samples)
-- [izumi-lab/llm-japanese-dataset](https://huggingface.co/datasets/izumi-lab/llm-japanese-dataset) (JA fertility samples)
+Recognized `packet_row_id` prefixes:
 
-## References
+| Prefix | Subset |
+|---|---|
+| `ja-flores-`, `ko-flores-` | translation rows |
+| `ja-mif-<subtask>-...`, `ko-mif-<subtask>-...` | paired Marco-MIF instruction-following rows |
+| `ja-datapilot-...`, `ko-law-...`, `ko-legal-qa-...` | non-translation control rows |
 
-1. Dang et al. (2024). "Aya Expanse: Combining Research Breakthroughs for a New Multilingual Frontier." [arXiv:2412.04261](https://arxiv.org/abs/2412.04261)
-2. Harrasse et al. (2025). "Tracing Multilingual Representations in LLMs with Cross-Layer Transcoders." [arXiv:2511.10840](https://arxiv.org/abs/2511.10840)
-3. TranslateGemma Technical Report (Google 2026). [arXiv:2601.09012](https://arxiv.org/abs/2601.09012)
-4. Kornblith et al. (2019). "Similarity of Neural Network Representations Revisited." [arXiv:1905.00414](https://arxiv.org/abs/1905.00414)
+`analyze_triangulation.py:load_e1b_pairs` enforces the original eval shape (17 paired Marco-MIF rows, 8 of which are content-parallel). Forking is recommended for other shapes.
+
+## Runtime
+
+- Python 3.11+.
+- CUDA-capable GPU for extraction and patching. The Tiny Aya checkpoints fit on a single 24 GB GPU.
+- CPU-only smoke modes are supported for end-to-end pipeline checks.
+
+## Citation
+
+Tiny Aya: Salamanca et al., *The Tiny Aya Series* (2026), [arXiv:2603.11510](https://arxiv.org/abs/2603.11510).
+
+This analysis: working writeup at [jbarnes850.github.io](https://jbarnes850.github.io).
 
 ## License
 
-See `LICENSE`.
+MIT. See `LICENSE`.

@@ -27,6 +27,11 @@ env/
 venv/
 ENV/
 
+# Tooling caches
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
 # IDE
 .idea/
 .vscode/
@@ -46,5 +51,25 @@ Thumbs.db
 *.pth
 *.safetensors
 
-# Large outputs
+# Numeric artifacts (activations, sharded tensors)
+*.npy
+*.parquet
+
+# Research outputs and inputs (build locally; do not commit)
+data/
 outputs/
+runs/
+manifests/
+models/
+session_logs/
+*.lock.json
+
+# Internal documentation and audit notes (kept local; not part of public release)
+docs/
+
+# Editor/agent state
+.codex/
+.claude/
+
+# Misc
+error.log
