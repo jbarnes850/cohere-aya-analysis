@@ -916,13 +916,13 @@ def run_analyze(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-id", required=True,
-                        help="HF id or local path (e.g., CohereLabs/tiny-aya-base)")
+    parser.add_argument("--model-id", default=None,
+                        help="HF id or local path; required for --extract / --analyze (e.g., CohereLabs/tiny-aya-base)")
     parser.add_argument("--model-slug", default=None,
                         help="Short slug for output dir; required for extract")
     parser.add_argument("--triang-corpus", type=Path, default=DEFAULT_TRIANG_CORPUS)
-    parser.add_argument("--packet-path", type=Path, required=True,
-                        help="JSONL path; row schema documented in README")
+    parser.add_argument("--packet-path", type=Path, default=None,
+                        help="JSONL path; required for --extract / --analyze (schema in README)")
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--run-tag", default=None,
                         help="Subfolder under output-root; defaults to timestamp")

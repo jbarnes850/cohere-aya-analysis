@@ -187,8 +187,8 @@ def run_smoke(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-id", required=True,
-                        help="HF id or local path (e.g., CohereLabs/tiny-aya-base)")
+    parser.add_argument("--model-id", default=None,
+                        help="HF id or local path; required outside --smoke (e.g., CohereLabs/tiny-aya-base)")
     parser.add_argument("--model-slug", default=None)
     parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)

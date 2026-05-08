@@ -344,11 +344,12 @@ def run_smoke(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run-tag", required=True)
+    parser.add_argument("--run-tag", default=None,
+                        help="Required outside --smoke")
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--device", default="cuda", choices=["cuda", "mps", "cpu"])
-    parser.add_argument("--model-id", required=True,
-                        help="HF id or local path (e.g., CohereLabs/tiny-aya-base)")
+    parser.add_argument("--model-id", default=None,
+                        help="HF id or local path; required outside --smoke (e.g., CohereLabs/tiny-aya-base)")
     parser.add_argument("--model-slug", default=None)
     parser.add_argument("--extract-w-unembed", action="store_true")
     parser.add_argument("--analyze", action="store_true")

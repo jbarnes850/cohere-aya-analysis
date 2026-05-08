@@ -665,17 +665,18 @@ def run_smoke(args: argparse.Namespace) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-tag", default=None)
-    parser.add_argument("--e1-run-tag", required=True)
+    parser.add_argument("--e1-run-tag", default=None,
+                        help="Required outside --smoke")
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
-    parser.add_argument("--packet-path", type=Path, required=True,
-                        help="JSONL path; row schema documented in README")
+    parser.add_argument("--packet-path", type=Path, default=None,
+                        help="JSONL path; required outside --smoke (schema in README)")
     parser.add_argument("--top-k", type=int, default=None)
     parser.add_argument("--n-show", type=int, default=8)
     parser.add_argument("--scale", type=float, default=1.0)
     parser.add_argument("--layer", type=int, default=26)
     parser.add_argument("--model-slug", default="tiny-aya-base")
-    parser.add_argument("--model-id", required=True,
-                        help="HF id or local path (e.g., CohereLabs/tiny-aya-base)")
+    parser.add_argument("--model-id", default=None,
+                        help="HF id or local path; required outside --smoke (e.g., CohereLabs/tiny-aya-base)")
     parser.add_argument("--device", default="cuda", choices=["cuda", "mps", "cpu"])
     parser.add_argument("--discriminate", action="store_true")
     parser.add_argument("--max-activating", action="store_true")

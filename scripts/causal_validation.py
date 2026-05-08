@@ -1187,12 +1187,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
     parser.add_argument("--run-tag", default=None)
-    parser.add_argument("--base-model-id", required=True,
-                        help="HF id or local path (e.g., CohereLabs/tiny-aya-base)")
-    parser.add_argument("--global-model-id", required=True,
-                        help="HF id or local path (e.g., CohereLabs/tiny-aya-global)")
-    parser.add_argument("--packet-path", type=Path, required=True,
-                        help="JSONL path; row schema documented in README")
+    parser.add_argument("--base-model-id", default=None,
+                        help="HF id or local path; required outside --smoke (e.g., CohereLabs/tiny-aya-base)")
+    parser.add_argument("--global-model-id", default=None,
+                        help="HF id or local path; required outside --smoke (e.g., CohereLabs/tiny-aya-global)")
+    parser.add_argument("--packet-path", type=Path, default=None,
+                        help="JSONL path; required outside --smoke (schema in README)")
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     return parser.parse_args()
 
